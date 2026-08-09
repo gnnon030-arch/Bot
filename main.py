@@ -94,8 +94,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_PHONE
 
 async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw_phone = update.message.contact.phone_number
+    # Contact tugmasi bosilgan bo'lsa
+    if update.message.contact:
+        raw_phone = update.message.contact.phone_number
+    # Qo'lda matn yuborilgan bo'lsa
+    elif update.message.text:
+        raw_phone = update.message.text
+    else:
+        await update.message.reply_text("Iltimos, to'g'ri telefon raqam kiriting.")
+        return WAITING_PHONE
+
     digits = "".join(filter(str.isdigit, raw_phone))
+    
+    # Raqam kamida 9 ta raqamdan iboratligini tekshirish
+    if len(digits) < 9:
+        await update.message.reply_text(
+            "Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998901234567)."
+        )
+        return WAITING_PHONE
+
     clean_phone = f"+{digits}"
 
     context.user_data["phone_number"] = clean_phone
@@ -121,12 +138,16 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# Bot buyruqlarini sozlash
+# Bot buyruqlarini sozlash (Faqat contact emas, text ham qabul qiladi)
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
-        WAITING_PHONE: [MessageHandler(filters.CONTACT, handle_phone)],
-        WAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)],
+        WAITING_PHONE: [
+            MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), handle_phone)
+        ],
+        WAITING_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)
+        ],
     },
     fallbacks=[],
 )
