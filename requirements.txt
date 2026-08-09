@@ -1,5 +1,7 @@
+fastapi
+uvicorn
+httpx
 python-telegram-bot
 supabase
 python-dotenv
-fastapi
-uvicorn
+pydantic
