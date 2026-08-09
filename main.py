@@ -17,10 +17,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Supabase va Bot Sozlamalari (Environment Variables orqali xavfsiz o'qiladi)
-SUPABASE_URL = os.getenv("https://pptswnqwapvmvtmqlspo.supabase.co")
+# Supabase va Bot Sozlamalari
+SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-BOT_TOKEN = os.getenv("https://pptswnqwapvmvtmqlspo.supabase.co")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Supabase mijozini yaratish
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
