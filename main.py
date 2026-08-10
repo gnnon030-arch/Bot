@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
-from telegram import ReplyKeyboardMarkup, KeyboardButton, Update
+from telegram import ReplyKeyboardMarkup, KeyboardButton, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -42,19 +42,37 @@ app.add_middleware(
 # Telegram Bot obyekti
 ptb_app = Application.builder().token(BOT_TOKEN).build()
 
+# -------------------------------------------------------------
+# MODELLAR (Pydantic)
+# -------------------------------------------------------------
 class OTPRequest(BaseModel):
     phone_number: str
 
-# Telegram xabarni fonda tez yuborish funksiyasi
-async def send_telegram_message(chat_id: int, code: str):
+class OrderStatusUpdate(BaseModel):
+    phone_number: str
+    user_name: str
+    status: str
+    items_text: str  # Dorilar ro'yxati va narxlari
+    total_price: str
+
+# -------------------------------------------------------------
+# TELEGRAMGA XABAR YUBORISH FUNKSIYASI (FastAPI va Bot uchun)
+# -------------------------------------------------------------
+async def send_telegram_message(chat_id: int, message_text: str):
     async with httpx.AsyncClient() as client:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": chat_id,
-            "text": f"🔑 Medilife saytiga kirish kodingiz: {code}",
+            "text": message_text,
+            "parse_mode": "Markdown"
         }
         await client.post(url, json=payload)
 
+# -------------------------------------------------------------
+# API ENDPOINTLAR
+# -------------------------------------------------------------
+
+# 1. OTP Kod yuborish
 @app.post("/send-otp")
 async def send_otp(req: OTPRequest, background_tasks: BackgroundTasks):
     digits = "".join(filter(str.isdigit, req.phone_number))
@@ -74,12 +92,45 @@ async def send_otp(req: OTPRequest, background_tasks: BackgroundTasks):
 
     chat_id = res.data[0]["chat_id"]
     code = str(random.randint(1000, 9999))
+    text = f"🔑 Medilife saytiga kirish kodingiz: {code}"
 
-    # Telegram xabarini orqa fonda tezkor yuboramiz (sayt kutilmaydi)
-    background_tasks.add_task(send_telegram_message, chat_id, code)
+    # Telegram xabarini orqa fonda tezkor yuboramiz
+    background_tasks.add_task(send_telegram_message, chat_id, text)
 
     return {"status": "success", "code": code}
 
+# 2. Buyurtma holatini yangilash va Telegram'ga xabar yuborish
+@app.post("/update-order-status")
+async def update_order_status(req: OrderStatusUpdate, background_tasks: BackgroundTasks):
+    digits = "".join(filter(str.isdigit, req.phone_number))
+    clean_phone = f"+{digits}"
+
+    # Supabase'dan chat_id topamiz
+    res = supabase.from_("telegram_users").select("chat_id").eq("phone_number", clean_phone).execute()
+    
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Foydalanuvchi Telegram botdan ro'yxatdan o'tmagan")
+
+    chat_id = res.data[0]["chat_id"]
+
+    # Telegram'ga yuboriladigan xabar formati
+    message = (
+        f"🔔 **Buyurtmangiz holati o'zgardi!**\n\n"
+        f"Yangi holat: **{req.status}**\n\n"
+        f"👤 {req.user_name}\n"
+        f"📞 {clean_phone}\n\n"
+        f"📦 **Buyurtma tarkibi:**\n"
+        f"{req.items_text}\n\n"
+        f"💰 **Jami:** {req.total_price} so'm"
+    )
+
+    background_tasks.add_task(send_telegram_message, chat_id, message)
+
+    return {"status": "success"}
+
+# -------------------------------------------------------------
+# TELEGRAM BOT LOGIKASI
+# -------------------------------------------------------------
 WAITING_PHONE, WAITING_NAME = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,10 +150,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_PHONE
 
 async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Contact tugmasi bosilgan bo'lsa
     if update.message.contact:
         raw_phone = update.message.contact.phone_number
-    # Qo'lda matn yuborilgan bo'lsa
     elif update.message.text:
         raw_phone = update.message.text
     else:
@@ -111,7 +160,6 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     digits = "".join(filter(str.isdigit, raw_phone))
     
-    # Raqam uzunligini tekshirish
     if len(digits) < 9:
         await update.message.reply_text(
             "Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998901234567)."
@@ -138,8 +186,14 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         on_conflict="phone_number",
     ).execute()
 
+    # Saytga to'g'ridan-to'g'ri o'tuvchi chiroyli tugma
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 Saytga o'tish", url="https://medilifeuz.lovable.app/login")]
+    ])
+
     await update.message.reply_text(
-        f"Rahmat, {first_name}! Endi saytdan kirishingiz mumkin. Sayt: medilifeuz.lovable.app/login"
+        f"Rahmat, {first_name}! Ro'yxatdan muvaffaqiyatli o'tdingiz. Pastdagi tugma orqali saytga kirishingiz mumkin:",
+        reply_markup=keyboard
     )
     return ConversationHandler.END
 
