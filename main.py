@@ -2,7 +2,7 @@ import logging
 import os
 import random
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -45,8 +45,18 @@ ptb_app = Application.builder().token(BOT_TOKEN).build()
 class OTPRequest(BaseModel):
     phone_number: str
 
+# Telegram xabarni fonda tez yuborish funksiyasi
+async def send_telegram_message(chat_id: int, code: str):
+    async with httpx.AsyncClient() as client:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": f"🔑 Medilife saytiga kirish kodingiz: {code}",
+        }
+        await client.post(url, json=payload)
+
 @app.post("/send-otp")
-async def send_otp(req: OTPRequest):
+async def send_otp(req: OTPRequest, background_tasks: BackgroundTasks):
     digits = "".join(filter(str.isdigit, req.phone_number))
     clean_phone = f"+{digits}"
 
@@ -65,13 +75,8 @@ async def send_otp(req: OTPRequest):
     chat_id = res.data[0]["chat_id"]
     code = str(random.randint(1000, 9999))
 
-    async with httpx.AsyncClient() as client:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": f"🔑 Medilife saytiga kirish kodingiz: {code}",
-        }
-        await client.post(url, json=payload)
+    # Telegram xabarini orqa fonda tezkor yuboramiz (sayt kutilmaydi)
+    background_tasks.add_task(send_telegram_message, chat_id, code)
 
     return {"status": "success", "code": code}
 
@@ -106,7 +111,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     digits = "".join(filter(str.isdigit, raw_phone))
     
-    # Raqam kamida 9 ta raqamdan iboratligini tekshirish
+    # Raqam uzunligini tekshirish
     if len(digits) < 9:
         await update.message.reply_text(
             "Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998901234567)."
@@ -138,7 +143,7 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# Bot buyruqlarini sozlash (Faqat contact emas, text ham qabul qiladi)
+# Bot buyruqlarini sozlash
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
