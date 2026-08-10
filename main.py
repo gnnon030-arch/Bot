@@ -139,7 +139,7 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ).execute()
 
     await update.message.reply_text(
-        f"Rahmat, {first_name}! Endi saytdan kirishingiz mumkin."
+        f"Rahmat, {first_name}! Endi saytdan kirishingiz mumkin. https://medilifeuz.lovable.app/login"
     )
     return ConversationHandler.END
 
