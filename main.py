@@ -33,6 +33,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# ADMIN TELEFON RAQAMI
+ADMIN_PHONE = "+998902608888"
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
@@ -61,7 +64,7 @@ class OrderStatusUpdate(BaseModel):
     total_price: str
 
 # -------------------------------------------------------------
-# TELEGRAMGA XABAR YUBORISH FUNKSIYASI
+# TELEGRAMGA XABAR YUBORISH
 # -------------------------------------------------------------
 async def send_telegram_message(chat_id: int, message_text: str):
     async with httpx.AsyncClient() as client:
@@ -119,13 +122,12 @@ async def update_order_status(req: OrderStatusUpdate, background_tasks: Backgrou
     return {"status": "success"}
 
 # -------------------------------------------------------------
-# TELEGRAM BOT LOGIKASI (YANGILANGAN)
+# TELEGRAM BOT LOGIKASI
 # -------------------------------------------------------------
 
-# Bosqichlar (States)
 CHOOSING_ACTION, REG_PHONE, REG_NAME, REG_PASSWORD, LOGIN_PHONE, LOGIN_PASSWORD = range(6)
 
-# Asosiy Bosh Menyular
+# Menyular
 MAIN_MENU = ReplyKeyboardMarkup([
     ["🔑 Kirish", "📝 Ro'yxatdan o'tish"]
 ], resize_keyboard=True)
@@ -135,15 +137,33 @@ LOGGED_IN_MENU = ReplyKeyboardMarkup([
     ["🚪 Akkauntdan chiqish"]
 ], resize_keyboard=True)
 
-# /start buyrug'i
+# Admin Menyu
+ADMIN_MENU = ReplyKeyboardMarkup([
+    ["👥 Barcha foydalanuvchilar", "📊 Statistika"],
+    ["🌐 Saytga o'tish"],
+    ["🚪 Akkauntdan chiqish"]
+], resize_keyboard=True)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     
-    # Baza orqali login bo'lganini tekshiramiz
     res = supabase.from_("telegram_users").select("*").eq("chat_id", user_id).execute()
     
     if res.data and res.data[0].get("is_logged_in"):
-        name = res.data[0].get("first_name", "Foydalanuvchi")
+        user = res.data[0]
+        name = user.get("first_name", "Foydalanuvchi")
+        phone = user.get("phone_number", "")
+
+        # Agar Admin kirsa
+        if phone == ADMIN_PHONE:
+            await update.message.reply_text(
+                f"👑 **Xush kelibsiz, Bosh Admin ({name})!** 🌟\n\nAdmin paneldan foydalanishingiz mumkin:",
+                reply_markup=ADMIN_MENU,
+                parse_mode="Markdown"
+            )
+            return CHOOSING_ACTION
+
         await update.message.reply_text(
             f"✨ **Xush kelibsiz, {name}!** 🌟\n\nSiz alaqachon akkauntingizga kirgansiz.",
             reply_markup=LOGGED_IN_MENU,
@@ -158,7 +178,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return CHOOSING_ACTION
 
-# --- RO'YXATDAN O'TISH (REGISTER) ---
+# --- RO'YXATDAN O'TISH ---
 async def start_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = ReplyKeyboardMarkup([[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]], resize_keyboard=True)
     await update.message.reply_text("📱 Ro'yxatdan o'tish uchun telefon raqamingizni yuboring:", reply_markup=kb)
@@ -178,21 +198,23 @@ async def handle_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("🔑 Endi akkauntingiz uchun **6 xonali parol** o'ylab toping va kiriting:")
+    await update.message.reply_text(
+        "🔑 Endi akkauntingiz uchun *6 xonali parol* o'ylab toping va kiriting:",
+        parse_mode="Markdown"
+    )
     return REG_PASSWORD
 
 async def handle_reg_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
     
     if len(password) < 6:
-        await update.message.reply_text("⚠️ Parol kamida **6 ta belgidan** iborat bo'lishi kerak. Qaytadan kiriting:")
+        await update.message.reply_text("⚠️ Parol kamida *6 ta belgidan* iborat bo'lishi kerak. Qaytadan kiriting:", parse_mode="Markdown")
         return REG_PASSWORD
 
     phone = context.user_data["phone"]
     name = context.user_data["name"]
     chat_id = update.effective_chat.id
 
-    # Bazaga saqlaymiz
     supabase.from_("telegram_users").upsert({
         "phone_number": phone,
         "chat_id": chat_id,
@@ -201,18 +223,21 @@ async def handle_reg_password(update: Update, context: ContextTypes.DEFAULT_TYPE
         "is_logged_in": True
     }, on_conflict="phone_number").execute()
 
+    menu_to_show = ADMIN_MENU if phone == ADMIN_PHONE else LOGGED_IN_MENU
+    greeting = f"👑 **Xush kelibsiz, Admin {name}!**" if phone == ADMIN_PHONE else f"🎉 **Tabriklaymiz, {name}!**"
+
     site_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Saytga o'tish", url="https://medilifeuz.lovable.app/login")]])
 
     await update.message.reply_text(
-        f"🎉 **Tabriklaymiz, {name}!**\n\nAkkauntingiz muvaffaqiyatli yaratildi va tizimga kirdingiz! ✨",
-        reply_markup=LOGGED_IN_MENU,
+        f"{greeting}\n\nAkkauntingiz muvaffaqiyatli yaratildi va tizimga kirdingiz! ✨",
+        reply_markup=menu_to_show,
         parse_mode="Markdown"
     )
     await update.message.reply_text("Pastdagi tugma orqali saytga o'tishingiz mumkin:", reply_markup=site_btn)
     return CHOOSING_ACTION
 
 
-# --- KIRISH (LOGIN) ---
+# --- KIRISH ---
 async def start_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = ReplyKeyboardMarkup([[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]], resize_keyboard=True)
     await update.message.reply_text("🔑 Akkauntga kirish uchun telefon raqamingizni yuboring:", reply_markup=kb)
@@ -223,7 +248,6 @@ async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE)
     digits = "".join(filter(str.isdigit, raw_phone))
     clean_phone = f"+{digits}"
 
-    # Supabase'dan tekshiramiz
     res = supabase.from_("telegram_users").select("*").eq("phone_number", clean_phone).execute()
 
     if not res.data:
@@ -234,13 +258,9 @@ async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return CHOOSING_ACTION
 
     context.user_data["login_phone"] = clean_phone
-    
     forgot_btn = InlineKeyboardMarkup([[InlineKeyboardButton("💡 Parol esdan chiqdimi?", url="https://t.me/abdulquddusodilov")]])
     
-    await update.message.reply_text(
-        "🔒 Parolingizni kiriting:",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("🔒 Parolingizni kiriting:", reply_markup=ReplyKeyboardRemove())
     await update.message.reply_text("Agar parolingizni unutsangiz, pastdagi tugmani bosing:", reply_markup=forgot_btn)
     return LOGIN_PASSWORD
 
@@ -254,14 +274,14 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
     if res.data and res.data[0].get("password") == entered_password:
         user_name = res.data[0].get("first_name", "Foydalanuvchi")
         
-        # Logged in statusini yangilaymiz
         supabase.from_("telegram_users").update({"is_logged_in": True, "chat_id": chat_id}).eq("phone_number", phone).execute()
 
         site_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Saytga o'tish", url="https://medilifeuz.lovable.app/login")]])
+        menu_to_show = ADMIN_MENU if phone == ADMIN_PHONE else LOGGED_IN_MENU
 
         await update.message.reply_text(
             f"🌟 **Akkauntingizga xush kelibsiz, {user_name}!** ✨\n\nTizimga muvaffaqiyatli kirdingiz.",
-            reply_markup=LOGGED_IN_MENU,
+            reply_markup=menu_to_show,
             parse_mode="Markdown"
         )
         await update.message.reply_text("Saytdan foydalanishingiz mumkin:", reply_markup=site_btn)
@@ -271,32 +291,79 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("❌ **Xato parol!** Qaytadan urinib ko'ring yoki yordam oling:", reply_markup=forgot_btn)
         return LOGIN_PASSWORD
 
+# --- ADMIN FUNKSIYALARI ---
+async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    res_admin = supabase.from_("telegram_users").select("*").eq("chat_id", chat_id).execute()
 
-# --- AKKAUNTDAN CHIQISH (LOGOUT) ---
+    # Adminligini tekshiramiz
+    if not res_admin.data or res_admin.data[0].get("phone_number") != ADMIN_PHONE:
+        await update.message.reply_text("❌ Sizda bu buyruqni ishlatish uchun huquq yo'q.")
+        return CHOOSING_ACTION
+
+    users = supabase.from_("telegram_users").select("*").execute()
+
+    if not users.data:
+        await update.message.reply_text("📂 Bazada birorta ham foydalanuvchi topilmadi.")
+        return CHOOSING_ACTION
+
+    text = f"📋 **Barcha foydalanuvchilar ro'yxati (Jami: {len(users.data)} ta):**\n\n"
+
+    for idx, u in enumerate(users.data, 1):
+        status = "🟢 Tizimda" if u.get("is_logged_in") else "🔴 Chiqqan"
+        text += f"{idx}. 👤 **{u.get('first_name', 'Ismsiz')}**\n"
+        text += f"   📞 `{u.get('phone_number')}`\n"
+        text += f"   Status: {status}\n\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+    return CHOOSING_ACTION
+
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    res_admin = supabase.from_("telegram_users").select("*").eq("chat_id", chat_id).execute()
+
+    if not res_admin.data or res_admin.data[0].get("phone_number") != ADMIN_PHONE:
+        await update.message.reply_text("❌ Sizda bu buyruqni ishlatish uchun huquq yo'q.")
+        return CHOOSING_ACTION
+
+    users = supabase.from_("telegram_users").select("*").execute()
+    logged_in_count = sum(1 for u in users.data if u.get("is_logged_in"))
+
+    stats_text = (
+        f"📊 **Medilife Bot Statistikasi:**\n\n"
+        f"👥 Jami ro'yxatdan o'tganlar: **{len(users.data)} ta**\n"
+        f"🟢 Hozir tizimda bo'lganlar: **{logged_in_count} ta**\n"
+        f"🔴 Akkauntdan chiqqanlar: **{len(users.data) - logged_in_count} ta**"
+    )
+
+    await update.message.reply_text(stats_text, parse_mode="Markdown")
+    return CHOOSING_ACTION
+
+# --- CHIQISH VA SAYT ---
 async def handle_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    
     supabase.from_("telegram_users").update({"is_logged_in": False}).eq("chat_id", chat_id).execute()
 
     await update.message.reply_text(
-        "🚪 **Akkauntingizdan muvaffaqiyatli chiqdingiz.**\n\nQayta kirish uchun quyidagi menyudan foydalaning:",
+        "🚪 **Akkauntingizdan muvaffaqiyatli chiqdingiz.**",
         reply_markup=MAIN_MENU,
         parse_mode="Markdown"
     )
     return CHOOSING_ACTION
 
-# --- SAYTGA O'TISH TUGMASI ---
 async def handle_site_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
     site_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Medilife Saytiga O'tish", url="https://medilifeuz.lovable.app/login")]])
     await update.message.reply_text("Saytga o'tish uchun quyidagi tugmani bosing:", reply_markup=site_btn)
 
-# Handlerlarni sozlash
+# Handlerlar
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
         CHOOSING_ACTION: [
             MessageHandler(filters.Regex("^📝 Ro'yxatdan o'tish$"), start_register),
             MessageHandler(filters.Regex("^🔑 Kirish$"), start_login),
+            MessageHandler(filters.Regex("^👥 Barcha foydalanuvchilar$"), show_all_users),
+            MessageHandler(filters.Regex("^📊 Statistika$"), show_stats),
             MessageHandler(filters.Regex("^🚪 Akkauntdan chiqish$"), handle_logout),
             MessageHandler(filters.Regex("^🌐 Saytga o'tish$"), handle_site_open),
         ],
