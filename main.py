@@ -33,8 +33,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ADMIN TELEFON RAQAMI
-ADMIN_PHONE = "+998902608888"
+# ADMIN TELEFON RAQAMLARI RO'YXATI
+ADMIN_PHONES = ["+998902608888", "+998913620080"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -156,9 +156,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = user.get("phone_number", "")
 
         # Agar Admin kirsa
-        if phone == ADMIN_PHONE:
+        if phone in ADMIN_PHONES:
             await update.message.reply_text(
-                f"👑 **Xush kelibsiz, Bosh Admin ({name})!** 🌟\n\nAdmin paneldan foydalanishingiz mumkin:",
+                f"👑 **Xush kelibsiz, Admin ({name})!** 🌟\n\nAdmin paneldan foydalanishingiz mumkin:",
                 reply_markup=ADMIN_MENU,
                 parse_mode="Markdown"
             )
@@ -223,8 +223,8 @@ async def handle_reg_password(update: Update, context: ContextTypes.DEFAULT_TYPE
         "is_logged_in": True
     }, on_conflict="phone_number").execute()
 
-    menu_to_show = ADMIN_MENU if phone == ADMIN_PHONE else LOGGED_IN_MENU
-    greeting = f"👑 **Xush kelibsiz, Admin {name}!**" if phone == ADMIN_PHONE else f"🎉 **Tabriklaymiz, {name}!**"
+    menu_to_show = ADMIN_MENU if phone in ADMIN_PHONES else LOGGED_IN_MENU
+    greeting = f"👑 **Xush kelibsiz, Admin {name}!**" if phone in ADMIN_PHONES else f"🎉 **Tabriklaymiz, {name}!**"
 
     site_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Saytga o'tish", url="https://medilifeuz.lovable.app/login")]])
 
@@ -277,7 +277,7 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
         supabase.from_("telegram_users").update({"is_logged_in": True, "chat_id": chat_id}).eq("phone_number", phone).execute()
 
         site_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Saytga o'tish", url="https://medilifeuz.lovable.app/login")]])
-        menu_to_show = ADMIN_MENU if phone == ADMIN_PHONE else LOGGED_IN_MENU
+        menu_to_show = ADMIN_MENU if phone in ADMIN_PHONES else LOGGED_IN_MENU
 
         await update.message.reply_text(
             f"🌟 **Akkauntingizga xush kelibsiz, {user_name}!** ✨\n\nTizimga muvaffaqiyatli kirdingiz.",
@@ -296,8 +296,7 @@ async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     res_admin = supabase.from_("telegram_users").select("*").eq("chat_id", chat_id).execute()
 
-    # Adminligini tekshiramiz
-    if not res_admin.data or res_admin.data[0].get("phone_number") != ADMIN_PHONE:
+    if not res_admin.data or res_admin.data[0].get("phone_number") not in ADMIN_PHONES:
         await update.message.reply_text("❌ Sizda bu buyruqni ishlatish uchun huquq yo'q.")
         return CHOOSING_ACTION
 
@@ -322,7 +321,7 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     res_admin = supabase.from_("telegram_users").select("*").eq("chat_id", chat_id).execute()
 
-    if not res_admin.data or res_admin.data[0].get("phone_number") != ADMIN_PHONE:
+    if not res_admin.data or res_admin.data[0].get("phone_number") not in ADMIN_PHONES:
         await update.message.reply_text("❌ Sizda bu buyruqni ishlatish uchun huquq yo'q.")
         return CHOOSING_ACTION
 
